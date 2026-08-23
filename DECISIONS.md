@@ -15,5 +15,8 @@
 - No external deployment.
 - No paid API dependency in the core path.
 
-## Known limitation
-- The original consolidated policy manual must be included in `data/` before final submission. This starter currently contains the supplied amendment corpus.
+## Original policy corpus
+
+- Added the original consolidated policy manual to `data/policy-manual.md`.
+- Kept `amendment_2026_01.md` as a separate document because the amendment modifies the consolidated manual rather than replacing it.
+- Kept policy retrieval separate from effective-date reasoning so that the Day-2 change could be incorporated without rewriting the retrieval layer.
