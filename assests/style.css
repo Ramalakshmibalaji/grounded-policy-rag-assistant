@@ -1,0 +1,247 @@
+/* =========================================================
+   GLOBAL
+   ========================================================= */
+
+.main-title {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.2rem;
+}
+
+.subtitle {
+    font-size: 1.05rem;
+    color: #666;
+    margin-bottom: 1.5rem;
+}
+
+
+/* =========================================================
+   ANSWER CARD
+   ========================================================= */
+
+.answer-card {
+    padding: 1.2rem;
+    border-radius: 12px;
+    border: 1px solid #ddd;
+    background-color: #fafafa;
+    margin-bottom: 1rem;
+}
+
+
+/* =========================================================
+   GROUNDED / WARNING BOX
+   ========================================================= */
+
+.grounded-box {
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid #b7dfc1;
+    background-color: #f2fff5;
+    margin-bottom: 1rem;
+}
+
+.warning-box {
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid #f0c36d;
+    background-color: #fff9ed;
+    margin-bottom: 1rem;
+}
+
+
+/* =========================================================
+   SECTION TITLES
+   ========================================================= */
+
+.section-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-top: 1rem;
+}
+
+.small-text {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+
+/* =========================================================
+   METRIC CARDS
+   ========================================================= */
+
+div[data-testid="stMetric"] {
+    border: 1px solid #ddd;
+    padding: 12px;
+    border-radius: 10px;
+}
+
+
+/* =========================================================
+   VISUAL SUMMARY CARD
+   ========================================================= */
+
+.visual-card {
+    padding: 1.2rem;
+    border-radius: 14px;
+    border: 1px solid #ddd;
+    background-color: #ffffff;
+    margin: 1rem 0;
+}
+
+
+/* =========================================================
+   PROFILE VALUES
+   ========================================================= */
+
+.profile-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-top: 4px;
+}
+
+.profile-label {
+    font-size: 0.85rem;
+    color: #666;
+    margin-top: 4px;
+}
+
+
+/* =========================================================
+   POLICY TIMELINE
+   ========================================================= */
+
+.timeline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 1rem 0;
+    gap: 10px;
+}
+
+.timeline-item {
+    flex: 1;
+    text-align: center;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid #ddd;
+    background-color: #fafafa;
+}
+
+.timeline-arrow {
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+
+
+/* =========================================================
+   ELIGIBILITY INDICATOR
+   ========================================================= */
+
+.eligibility-card {
+    padding: 1.3rem;
+    border-radius: 14px;
+    border: 1px solid #ddd;
+    margin: 1rem 0;
+    text-align: center;
+}
+
+.eligibility-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.eligibility-status {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+
+/* =========================================================
+   POLICY GAUGE
+   ========================================================= */
+
+.gauge-container {
+    margin: 1rem 0;
+}
+
+.gauge-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.gauge-track {
+    width: 100%;
+    height: 16px;
+    border-radius: 10px;
+    background-color: #e5e5e5;
+    position: relative;
+    overflow: hidden;
+}
+
+.gauge-fill {
+    height: 100%;
+    border-radius: 10px;
+}
+
+.gauge-marker {
+    position: absolute;
+    top: -4px;
+    width: 4px;
+    height: 24px;
+    border-radius: 4px;
+}
+
+
+/* =========================================================
+   EVIDENCE CARD
+   ========================================================= */
+
+.evidence-card {
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid #ddd;
+    background-color: #fafafa;
+    margin-bottom: 0.7rem;
+}
+
+
+/* =========================================================
+   NEXT STEP CARD
+   ========================================================= */
+
+.next-step-card {
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid #ddd;
+    background-color: #f8f9fa;
+    margin-top: 1rem;
+}
+
+
+/* =========================================================
+   RESPONSIVE TIMELINE
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+    .main-title {
+        font-size: 2rem;
+    }
+
+    .timeline {
+        flex-direction: column;
+    }
+
+    .timeline-arrow {
+        transform: rotate(90deg);
+    }
+
+    .timeline-item {
+        width: 100%;
+    }
+
+}

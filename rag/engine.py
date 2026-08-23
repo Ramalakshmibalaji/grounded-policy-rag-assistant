@@ -21,6 +21,34 @@ YEAR_RE = re.compile(r"\b(20\d{2})\b")
 
 
 # =========================================================
+# POLICY CONSTANTS
+# =========================================================
+
+AMENDMENT_DATE = (2026, 3)
+
+# These values represent the policy rules already defined
+# in the project. They are NEVER treated as sufficient
+# evidence by themselves. Retrieved policy evidence must
+# support the answer before it is marked as grounded.
+
+INCOME_THRESHOLDS = {
+    1: 1225,
+    2: 1650,
+    3: 2075,
+    4: 2500,
+    5: 2925,
+}
+
+PRE_AMENDMENT_EARNINGS_DISREGARD = 120
+POST_AMENDMENT_EARNINGS_DISREGARD = 175
+
+PRE_AMENDMENT_REPORTING_DAYS = 10
+POST_AMENDMENT_REPORTING_DAYS = 14
+
+POST_AMENDMENT_SANCTION_RATE = 15
+
+
+# =========================================================
 # DATE HELPERS
 # =========================================================
 
@@ -32,9 +60,9 @@ def extract_date(text):
         April 2026 -> (2026, 4)
     """
 
-    m = DATE_RE.search(text)
+    match = DATE_RE.search(text)
 
-    if not m:
+    if not match:
         return None
 
     months = {
@@ -53,8 +81,8 @@ def extract_date(text):
     }
 
     return (
-        int(m.group(2)),
-        months[m.group(1).lower()],
+        int(match.group(2)),
+        months[match.group(1).lower()],
     )
 
 
@@ -66,17 +94,22 @@ def extract_year(text):
         2027 -> 2027
     """
 
-    m = YEAR_RE.search(text)
+    match = YEAR_RE.search(text)
 
-    if not m:
+    if not match:
         return None
 
-    return int(m.group(1))
+    return int(match.group(1))
 
 
-def month_at_or_after(year, month, y2=2026, m2=3):
+def month_at_or_after(
+    year,
+    month,
+    y2=2026,
+    m2=3,
+):
     """
-    Checks whether a date is on or after
+    Check whether date is on or after
     1 March 2026.
     """
 
@@ -132,13 +165,12 @@ def extract_monthly_income(text):
     """
     Extract monthly household income.
 
-    Supported examples:
+    Examples:
 
         monthly income of $2,000
         monthly household income $2000
         income of $2,000 per month
         monthly income: $2,000
-        monthly income is $2,000
     """
 
     patterns = [
@@ -167,20 +199,18 @@ def extract_monthly_income(text):
         if match:
 
             try:
-
                 return float(
                     match.group(1).replace(",", "")
                 )
 
             except ValueError:
-
                 return None
 
     return None
 
 
 # =========================================================
-# MONEY
+# MONEY HELPERS
 # =========================================================
 
 MONEY_RE = re.compile(
@@ -189,9 +219,6 @@ MONEY_RE = re.compile(
 
 
 def normalize_amount(amount_text):
-    """
-    Convert policy amount to clean display format.
-    """
 
     if not amount_text:
         return None
@@ -204,32 +231,31 @@ def normalize_amount(amount_text):
     )
 
     try:
-
         value = float(clean)
 
     except ValueError:
-
         return None
 
-    # Do not accidentally treat a year as money.
+    # Do not treat a year as money.
     if 1900 <= value <= 2100:
         return None
 
     if value.is_integer():
-
         return f"${int(value):,}"
 
     return f"${value:,.2f}"
 
 
-def extract_amount_near_household(text, household_size):
+def extract_amount_near_household(
+    text,
+    household_size,
+):
     """
-    Extract an exact amount that appears near
+    Extract exact policy amount appearing near
     the requested household size.
 
     IMPORTANT:
-    This function never calculates or invents
-    a policy amount.
+    This function does not calculate policy values.
     """
 
     if household_size is None:
@@ -238,7 +264,7 @@ def extract_amount_near_household(text, household_size):
     size = str(household_size)
 
     # -----------------------------------------------------
-    # Markdown table
+    # Markdown tables
     # -----------------------------------------------------
 
     table_patterns = [
@@ -341,7 +367,10 @@ def extract_amount_near_household(text, household_size):
     return None
 
 
-def find_policy_amount(results, household_size):
+def find_policy_amount(
+    results,
+    household_size,
+):
 
     if household_size is None:
         return None, None
@@ -365,74 +394,289 @@ def find_policy_amount(results, household_size):
 
 
 # =========================================================
+# EVIDENCE HELPERS
+# =========================================================
+
+def clean_text(text):
+    """
+    Normalize whitespace for evidence processing.
+    """
+
+    if not text:
+        return ""
+
+    return re.sub(
+        r"\s+",
+        " ",
+        str(text),
+    ).strip()
+
+
+def evidence_supports(
+    result,
+    required_terms=None,
+    required_any=None,
+):
+    """
+    Check whether retrieved evidence contains
+    enough textual support.
+
+    required_terms:
+        Every term must appear.
+
+    required_any:
+        At least one term must appear.
+    """
+
+    if not result:
+        return False
+
+    text = clean_text(
+        result.get("text", "")
+    ).lower()
+
+    if not text:
+        return False
+
+    if required_terms:
+
+        for term in required_terms:
+
+            if str(term).lower() not in text:
+                return False
+
+    if required_any:
+
+        if not any(
+            str(term).lower() in text
+            for term in required_any
+        ):
+            return False
+
+    return True
+
+
+def find_supporting_evidence(
+    results,
+    required_terms=None,
+    required_any=None,
+):
+    """
+    Find the first retrieved evidence chunk
+    that actually supports the required rule.
+    """
+
+    for result in results:
+
+        if evidence_supports(
+            result,
+            required_terms=required_terms,
+            required_any=required_any,
+        ):
+            return result
+
+    return None
+
+
+def extract_clause_from_result(
+    result,
+    section_hint=None,
+):
+    """
+    Extract a useful policy excerpt from retrieved
+    evidence.
+
+    The actual retrieved text is preserved.
+    """
+
+    if not result:
+        return None
+
+    text = str(
+        result.get("text", "")
+    ).strip()
+
+    if not text:
+        return None
+
+    # -----------------------------------------------------
+    # If a section hint exists, try to locate it.
+    # -----------------------------------------------------
+
+    if section_hint:
+
+        match = re.search(
+            re.escape(section_hint),
+            text,
+            re.I,
+        )
+
+        if match:
+
+            start = max(
+                0,
+                match.start() - 80,
+            )
+
+            end = min(
+                len(text),
+                match.end() + 500,
+            )
+
+            return text[start:end].strip()
+
+    # -----------------------------------------------------
+    # Otherwise return retrieved evidence itself.
+    # -----------------------------------------------------
+
+    return text
+
+
+def build_citation(
+    result,
+    section_hint=None,
+):
+    """
+    Build citation using the actual retrieved
+    policy evidence.
+    """
+
+    if not result:
+        return None
+
+    source = result.get(
+        "source",
+        "policy document",
+    )
+
+    section = result.get(
+        "section",
+        "policy section",
+    )
+
+    clause = extract_clause_from_result(
+        result,
+        section_hint,
+    )
+
+    if not clause:
+        return None
+
+    return (
+        f"{section} — {source}\n\n"
+        f"{clause}"
+    )
+
+
+def result_score(result):
+    """
+    Safely read retriever score.
+    """
+
+    try:
+        return float(
+            result.get("score", 0)
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0.0
+
+
+def best_result(results):
+    """
+    Return highest-scoring result.
+    """
+
+    if not results:
+        return None
+
+    return max(
+        results,
+        key=result_score,
+    )
+
+
+# =========================================================
 # CITIZEN LANGUAGE NORMALIZATION
 # =========================================================
 
 def normalize_citizen_question(question):
-    """
-    Converts common citizen-style wording into
-    policy-friendly terminology.
-
-    This is NOT a generative translation system.
-    It only normalizes known phrases.
-    """
 
     q = question.lower().strip()
 
     replacements = {
 
-        # -------------------------------------------------
         # Eligibility
-        # -------------------------------------------------
-
         "can i qualify": "eligibility",
         "do i qualify": "eligibility",
         "am i eligible": "eligibility",
         "can i get the benefit": "eligibility",
 
-        # -------------------------------------------------
         # Benefit
-        # -------------------------------------------------
+        "how much can i get":
+            "maximum benefit amount",
 
-        "how much can i get": "maximum benefit amount",
-        "how much money can i get": "maximum benefit amount",
-        "how much will i get": "maximum benefit amount",
-        "what can i get": "maximum benefit amount",
-        "how much benefit": "maximum benefit amount",
+        "how much money can i get":
+            "maximum benefit amount",
 
-        # -------------------------------------------------
+        "how much will i get":
+            "maximum benefit amount",
+
+        "what can i get":
+            "maximum benefit amount",
+
+        "how much benefit":
+            "maximum benefit amount",
+
         # Income
-        # -------------------------------------------------
+        "how much can i earn":
+            "income threshold",
 
-        "how much can i earn": "income threshold",
-        "how much income can i have": "income threshold",
-        "income limit": "income threshold",
-        "earning limit": "income threshold",
-        "earnings limit": "income threshold",
+        "how much income can i have":
+            "income threshold",
 
-        # -------------------------------------------------
+        "income limit":
+            "income threshold",
+
+        "earning limit":
+            "income threshold",
+
+        "earnings limit":
+            "income threshold",
+
         # Reporting
-        # -------------------------------------------------
+        "how long do i have":
+            "reporting period",
 
-        "how long do i have": "reporting period",
-        "how many days do i have": "reporting period",
-        "when do i need to tell you": "reporting period",
-        "when should i report": "reporting period",
-        "do i need to report": "report change circumstance",
+        "how many days do i have":
+            "reporting period",
 
-        # -------------------------------------------------
+        "when do i need to tell you":
+            "reporting period",
+
+        "when should i report":
+            "reporting period",
+
+        "do i need to report":
+            "report change circumstance",
+
         # Sanction
-        # -------------------------------------------------
+        "will i be punished":
+            "sanction",
 
-        "will i be punished": "sanction",
-        "will there be a penalty": "sanction",
-        "penalty": "sanction",
-        "punishment": "sanction",
+        "will there be a penalty":
+            "sanction",
 
-        # -------------------------------------------------
+        "penalty":
+            "sanction",
+
+        "punishment":
+            "sanction",
+
         # Earnings disregard
-        # -------------------------------------------------
-
         "money i can earn before it affects":
             "earnings disregard",
 
@@ -457,17 +701,8 @@ def normalize_citizen_question(question):
 # =========================================================
 
 def detect_intent(question):
-    """
-    Detect the citizen's main policy intent.
-
-    Returns a human-readable intent.
-    """
 
     q = question.lower()
-
-    # =====================================================
-    # ELIGIBILITY
-    # =====================================================
 
     if (
         "eligibility" in q
@@ -476,10 +711,6 @@ def detect_intent(question):
         or "qualification" in q
     ):
         return "Eligibility"
-
-    # =====================================================
-    # MAXIMUM BENEFIT
-    # =====================================================
 
     if (
         "maximum benefit" in q
@@ -490,10 +721,6 @@ def detect_intent(question):
     ):
         return "Maximum Benefit"
 
-    # =====================================================
-    # INCOME THRESHOLD
-    # =====================================================
-
     if (
         "income" in q
         and (
@@ -503,16 +730,8 @@ def detect_intent(question):
     ):
         return "Income Threshold"
 
-    # =====================================================
-    # EARNINGS DISREGARD
-    # =====================================================
-
     if "earnings disregard" in q:
         return "Earnings Disregard"
-
-    # =====================================================
-    # CHANGE REPORTING
-    # =====================================================
 
     if (
         "report" in q
@@ -523,20 +742,12 @@ def detect_intent(question):
     ):
         return "Change Reporting"
 
-    # =====================================================
-    # SANCTION
-    # =====================================================
-
     if (
         "sanction" in q
         or "penalty" in q
         or "punishment" in q
     ):
         return "Sanction"
-
-    # =====================================================
-    # CROSS PERIOD
-    # =====================================================
 
     if (
         "claim period" in q
@@ -549,10 +760,13 @@ def detect_intent(question):
 
 
 # =========================================================
-# SIMPLE NEXT STEP
+# NEXT STEP
 # =========================================================
 
-def get_next_step(intent, grounded):
+def get_next_step(
+    intent,
+    grounded,
+):
 
     if not grounded:
 
@@ -611,7 +825,10 @@ def get_next_step(intent, grounded):
 
 class GroundedEngine:
 
-    def __init__(self, data_dir="data"):
+    def __init__(
+        self,
+        data_dir="data",
+    ):
 
         self.data_dir = data_dir
 
@@ -631,6 +848,11 @@ class GroundedEngine:
             data_dir
         )
 
+        if not docs:
+            raise ValueError(
+                f"No policy documents found in '{data_dir}'."
+            )
+
         # -------------------------------------------------
         # Chunk documents
         # -------------------------------------------------
@@ -644,6 +866,12 @@ class GroundedEngine:
                     document["text"],
                     document["source"],
                 )
+            )
+
+        if not self.chunks:
+            raise ValueError(
+                "Policy documents were loaded, "
+                "but no chunks were created."
             )
 
         # -------------------------------------------------
@@ -671,24 +899,105 @@ class GroundedEngine:
         )
 
     # =====================================================
+    # STANDARD RESULT BUILDERS
+    # =====================================================
+
+    def _grounded_result(
+        self,
+        answer,
+        result,
+        section_hint,
+        effective_rule,
+        intent,
+        results,
+        confidence="high",
+    ):
+        """
+        Create a grounded response only when
+        actual evidence exists.
+        """
+
+        citation = build_citation(
+            result,
+            section_hint,
+        )
+
+        if not citation:
+
+            return self._abstain_result(
+                (
+                    "I don't know. I found related policy "
+                    "material, but I could not identify a "
+                    "specific supporting clause for this "
+                    "answer. I don't want to guess."
+                ),
+                intent,
+                results,
+                "A specific supporting policy clause "
+                "could not be identified.",
+            )
+
+        return {
+            "answer": answer,
+            "citation": citation,
+            "effective_rule": effective_rule,
+            "confidence": confidence,
+            "evidence": results[:3],
+            "grounded": True,
+            "intent": intent,
+            "next_step": get_next_step(
+                intent,
+                True,
+            ),
+            "normalized_question": None,
+        }
+
+    def _abstain_result(
+        self,
+        answer,
+        intent,
+        results,
+        reason,
+    ):
+
+        return {
+            "answer": answer,
+            "citation": None,
+            "effective_rule": reason,
+            "confidence": "low",
+            "evidence": results[:3],
+            "grounded": False,
+            "intent": intent,
+            "next_step": get_next_step(
+                intent,
+                False,
+            ),
+            "normalized_question": None,
+        }
+
+    # =====================================================
     # RULE-BASED POLICY LOGIC
     # =====================================================
 
-    def _answer_from_rules(self, q, results):
+    def _answer_from_rules(
+        self,
+        q,
+        results,
+    ):
 
         ql = q.lower()
-
-        # -------------------------------------------------
-        # Extract entities
-        # -------------------------------------------------
 
         date = extract_date(q)
 
         year = extract_year(q)
 
-        household_size = extract_household_size(q)
+        household_size = (
+            extract_household_size(q)
+        )
 
-        monthly_income = extract_monthly_income(q)
+        monthly_income = (
+            extract_monthly_income(q)
+        )
 
         # -------------------------------------------------
         # Amendment applicability
@@ -710,125 +1019,136 @@ class GroundedEngine:
             or "qualification" in ql
         ):
 
-            # -------------------------------------------------
-            # Household size required
-            # -------------------------------------------------
-
             if household_size is None:
 
-                return (
+                return self._abstain_result(
                     (
-                        "I need the household size to determine "
-                        "eligibility from the available policy."
+                        "I need the household size to "
+                        "determine eligibility from the "
+                        "available policy."
                     ),
-                    None,
+                    "Eligibility",
+                    results,
                     "Household size was not provided.",
                 )
 
-            # -------------------------------------------------
-            # Monthly income required
-            # -------------------------------------------------
-
             if monthly_income is None:
 
-                return (
+                return self._abstain_result(
                     (
-                        "I need the monthly household income to "
-                        "determine eligibility from the available "
-                        "policy."
+                        "I need the monthly household income "
+                        "to determine eligibility from the "
+                        "available policy."
                     ),
-                    None,
+                    "Eligibility",
+                    results,
                     "Monthly household income was not provided.",
                 )
 
-            # -------------------------------------------------
-            # Available policy threshold table
-            # -------------------------------------------------
-
-            threshold_table = {
-                1: 1225,
-                2: 1650,
-                3: 2075,
-                4: 2500,
-                5: 2925,
-            }
-
-            threshold = threshold_table.get(
+            threshold = INCOME_THRESHOLDS.get(
                 household_size
             )
 
-            # -------------------------------------------------
-            # Household size not available
-            # -------------------------------------------------
-
             if threshold is None:
 
-                return (
+                return self._abstain_result(
                     (
                         f"I don't have enough policy evidence "
                         f"to determine the eligibility threshold "
-                        f"for a household of {household_size}. "
-                        f"Please contact the county benefits "
-                        f"policy team."
+                        f"for a household of "
+                        f"{household_size}. Please contact "
+                        f"the county benefits policy team."
                     ),
-                    None,
-                    "Household size is outside the available "
-                    "policy threshold table.",
+                    "Eligibility",
+                    results,
+                    "Household size is outside the "
+                    "available policy threshold table.",
                 )
-
-            # -------------------------------------------------
-            # Date applicability
-            # -------------------------------------------------
 
             if date is not None and not post:
 
-                return (
+                return self._abstain_result(
                     (
                         "I cannot determine eligibility using "
                         "the post-amendment threshold because "
                         "the determination date is before "
                         "1 March 2026."
                     ),
-                    None,
+                    "Eligibility",
+                    results,
                     "The available threshold applies to "
                     "determinations on or after 1 March 2026.",
                 )
 
             # -------------------------------------------------
-            # Eligibility comparison
+            # IMPORTANT:
+            # Require retrieved evidence to support the
+            # policy amount before answering.
             # -------------------------------------------------
+
+            threshold_text = (
+                f"{threshold:,}"
+            )
+
+            supporting_result = (
+                find_supporting_evidence(
+                    results,
+                    required_any=[
+                        threshold_text,
+                        f"${threshold_text}",
+                    ],
+                )
+            )
+
+            if supporting_result is None:
+
+                return self._abstain_result(
+                    (
+                        "I don't know. I found policy material "
+                        "related to eligibility, but the "
+                        "retrieved evidence does not clearly "
+                        "support the required income threshold "
+                        "for this household size."
+                    ),
+                    "Eligibility",
+                    results,
+                    "The retrieved evidence did not support "
+                    f"the threshold ${threshold:,}.",
+                )
 
             if monthly_income <= threshold:
 
-                return (
-                    (
-                        f"Yes. Based on the available policy, "
-                        f"a household of {household_size} with "
-                        f"a monthly income of "
-                        f"${monthly_income:,.0f} is within the "
-                        f"monthly income threshold of "
-                        f"${threshold:,} for the applicable "
-                        f"determination period."
-                    ),
-                    "§6.6.1 / Amendment §3.1",
-                    "Amendment §5.1",
+                answer = (
+                    f"Yes. Based on the available policy, "
+                    f"a household of {household_size} with "
+                    f"a monthly income of "
+                    f"${monthly_income:,.0f} is within the "
+                    f"monthly income threshold of "
+                    f"${threshold:,} for the applicable "
+                    f"determination period."
                 )
 
             else:
 
-                return (
-                    (
-                        f"Based on the available policy, "
-                        f"a household of {household_size} with "
-                        f"a monthly income of "
-                        f"${monthly_income:,.0f} is above the "
-                        f"monthly income threshold of "
-                        f"${threshold:,} for the applicable "
-                        f"determination period."
-                    ),
-                    "§6.6.1 / Amendment §3.1",
-                    "Amendment §5.1",
+                answer = (
+                    f"Based on the available policy, "
+                    f"a household of {household_size} with "
+                    f"a monthly income of "
+                    f"${monthly_income:,.0f} is above the "
+                    f"monthly income threshold of "
+                    f"${threshold:,} for the applicable "
+                    f"determination period."
                 )
+
+            return self._grounded_result(
+                answer,
+                supporting_result,
+                "§6.6.1",
+                "The retrieved policy evidence supports "
+                "the applicable income threshold.",
+                "Eligibility",
+                results,
+            )
 
         # =================================================
         # 2. MAXIMUM BENEFIT
@@ -845,79 +1165,92 @@ class GroundedEngine:
             or "benefit amount" in ql
         ):
 
-            if household_size is not None:
+            if household_size is None:
 
-                amount, supporting_result = (
-                    find_policy_amount(
-                        results,
-                        household_size,
-                    )
-                )
-
-                if amount:
-
-                    source = (
-                        supporting_result.get(
-                            "source",
-                            "policy document",
-                        )
-                    )
-
-                    section = (
-                        supporting_result.get(
-                            "section",
-                            "policy section",
-                        )
-                    )
-
-                    requested_year = (
-                        year
-                        if year is not None
-                        else (
-                            date[0]
-                            if date is not None
-                            else None
-                        )
-                    )
-
-                    if requested_year:
-
-                        answer = (
-                            f"For a household of "
-                            f"{household_size} in "
-                            f"{requested_year}, the maximum "
-                            f"benefit is {amount}."
-                        )
-
-                    else:
-
-                        answer = (
-                            f"The maximum benefit for a "
-                            f"household of "
-                            f"{household_size} is "
-                            f"{amount}."
-                        )
-
-                    return (
-                        answer,
-                        f"{section} — {source}",
-                        "Retrieved policy evidence",
-                    )
-
-                return (
+                return self._abstain_result(
                     (
-                        f"I found policy information about "
-                        f"the maximum benefit, but I could "
-                        f"not find an exact amount for a "
-                        f"household of {household_size}. "
-                        f"I don't want to guess. Please "
-                        f"contact the county benefits "
-                        f"policy team."
+                        "I need the household size to "
+                        "identify the maximum benefit "
+                        "from the available policy."
                     ),
-                    None,
-                    "Maximum benefit amount not found "
-                    "in the retrieved evidence",
+                    "Maximum Benefit",
+                    results,
+                    "Household size was not provided.",
                 )
+
+            amount, supporting_result = (
+                find_policy_amount(
+                    results,
+                    household_size,
+                )
+            )
+
+            if amount and supporting_result:
+
+                source = supporting_result.get(
+                    "source",
+                    "policy document",
+                )
+
+                requested_year = (
+                    year
+                    if year is not None
+                    else (
+                        date[0]
+                        if date is not None
+                        else None
+                    )
+                )
+
+                if requested_year:
+
+                    answer = (
+                        f"For a household of "
+                        f"{household_size} in "
+                        f"{requested_year}, the maximum "
+                        f"benefit is {amount}."
+                    )
+
+                else:
+
+                    answer = (
+                        f"The maximum benefit for a "
+                        f"household of "
+                        f"{household_size} is "
+                        f"{amount}."
+                    )
+
+                return self._grounded_result(
+                    answer,
+                    supporting_result,
+                    supporting_result.get(
+                        "section",
+                        None,
+                    ),
+                    (
+                        f"The amount was retrieved from "
+                        f"the supporting policy evidence "
+                        f"({source})."
+                    ),
+                    "Maximum Benefit",
+                    results,
+                )
+
+            return self._abstain_result(
+                (
+                    f"I found policy information about "
+                    f"the maximum benefit, but I could "
+                    f"not find an exact amount for a "
+                    f"household of {household_size}. "
+                    f"I don't want to guess. Please "
+                    f"contact the county benefits "
+                    f"policy team."
+                ),
+                "Maximum Benefit",
+                results,
+                "Maximum benefit amount was not found "
+                "in the retrieved evidence.",
+            )
 
         # =================================================
         # 3. INCOME THRESHOLD
@@ -933,49 +1266,95 @@ class GroundedEngine:
 
             size = household_size
 
-            if size is not None:
+            if size is None:
 
-                threshold_table = {
-                    1: 1225,
-                    2: 1650,
-                    3: 2075,
-                    4: 2500,
-                    5: 2925,
-                }
-
-                base = threshold_table.get(
-                    size
+                return self._abstain_result(
+                    (
+                        "I need the household size to "
+                        "identify the applicable income "
+                        "threshold."
+                    ),
+                    "Income Threshold",
+                    results,
+                    "Household size was not provided.",
                 )
 
-                if base is not None and post:
+            base = INCOME_THRESHOLDS.get(
+                size
+            )
 
-                    return (
-                        (
-                            f"For a determination made "
-                            f"in {date[0]}, the monthly "
-                            f"income threshold for a "
-                            f"household of {size} is "
-                            f"${base:,}."
-                        ),
-                        "§6.6.1 / Amendment §3.1",
-                        "Amendment §5.1",
-                    )
+            if base is None:
 
-                if base is None:
+                return self._abstain_result(
+                    (
+                        f"I don't have enough policy "
+                        f"evidence to determine the "
+                        f"monthly income threshold for "
+                        f"a household of {size}."
+                    ),
+                    "Income Threshold",
+                    results,
+                    "Household size is outside the "
+                    "available policy table.",
+                )
 
-                    return (
-                        (
-                            f"I don't have enough policy "
-                            f"evidence to determine the "
-                            f"monthly income threshold for "
-                            f"a household of {size}. "
-                            f"Please contact the county "
-                            f"benefits policy team."
-                        ),
-                        None,
-                        "Household size is outside "
-                        "the available policy table",
-                    )
+            if date is not None and not post:
+
+                return self._abstain_result(
+                    (
+                        "I don't have enough evidence to "
+                        "apply the post-amendment threshold "
+                        "to a determination made before "
+                        "1 March 2026."
+                    ),
+                    "Income Threshold",
+                    results,
+                    "Requested date is before the "
+                    "amendment effective date.",
+                )
+
+            supporting_result = (
+                find_supporting_evidence(
+                    results,
+                    required_any=[
+                        f"{base:,}",
+                        f"${base:,}",
+                    ],
+                )
+            )
+
+            if supporting_result is None:
+
+                return self._abstain_result(
+                    (
+                        "I don't know. The retrieved policy "
+                        "evidence does not clearly support "
+                        "the exact income threshold for "
+                        f"a household of {size}."
+                    ),
+                    "Income Threshold",
+                    results,
+                    "Retrieved evidence did not support "
+                    f"${base:,}.",
+                )
+
+            answer = (
+                f"For a determination made in "
+                f"{date[0] if date else 'the applicable period'}, "
+                f"the monthly income threshold for a "
+                f"household of {size} is "
+                f"${base:,}."
+            )
+
+            return self._grounded_result(
+                answer,
+                supporting_result,
+                "§6.6.1",
+                "The retrieved evidence supports "
+                "the applicable income threshold.",
+                "Income Threshold",
+                results,
+            )
 
         # =================================================
         # 4. EARNINGS DISREGARD
@@ -983,27 +1362,81 @@ class GroundedEngine:
 
         if "earnings disregard" in ql:
 
+            if date is None:
+
+                return self._abstain_result(
+                    (
+                        "I need the determination date to "
+                        "identify which earnings disregard "
+                        "rule applies."
+                    ),
+                    "Earnings Disregard",
+                    results,
+                    "Determination date was not provided.",
+                )
+
             if post:
 
-                return (
-                    "The earnings disregard is "
-                    "$175 per month.",
-                    "§6.4.1(a) / Amendment §1.1",
-                    "Amendment §5.1",
+                amount = (
+                    POST_AMENDMENT_EARNINGS_DISREGARD
                 )
 
-            if date is not None:
+            else:
 
-                return (
+                amount = (
+                    PRE_AMENDMENT_EARNINGS_DISREGARD
+                )
+
+            supporting_result = (
+                find_supporting_evidence(
+                    results,
+                    required_any=[
+                        f"{amount}",
+                        f"${amount}",
+                    ],
+                )
+            )
+
+            if supporting_result is None:
+
+                return self._abstain_result(
                     (
-                        "The amendment does not apply "
-                        "to a determination made before "
-                        "1 March 2026. The pre-amendment "
-                        "amount was $120 per month."
+                        "I don't know. The retrieved "
+                        "policy evidence does not clearly "
+                        "support the earnings disregard "
+                        "amount for the requested period."
                     ),
-                    "§6.4.1(a) / Amendment §1.1",
-                    "Amendment §5.1",
+                    "Earnings Disregard",
+                    results,
+                    "Retrieved evidence did not support "
+                    f"${amount}.",
                 )
+
+            if post:
+
+                answer = (
+                    "The earnings disregard is "
+                    f"${amount} per month."
+                )
+
+            else:
+
+                answer = (
+                    "The amendment does not apply to a "
+                    "determination made before 1 March 2026. "
+                    f"The pre-amendment amount was "
+                    f"${amount} per month."
+                )
+
+            return self._grounded_result(
+                answer,
+                supporting_result,
+                "§6.4.1(a)",
+                "The requested date was matched against "
+                "the amendment effective date.",
+                "Earnings Disregard",
+                results,
+            )
 
         # =================================================
         # 5. REPORTING PERIOD
@@ -1022,31 +1455,82 @@ class GroundedEngine:
             )
         ):
 
-            if date is not None:
+            if date is None:
 
-                if post:
-
-                    return (
-                        (
-                            "You have 14 calendar days "
-                            "to report the change because "
-                            "the change occurred on or "
-                            "after 1 March 2026."
-                        ),
-                        "§4.3.2 / Amendment §2.1",
-                        "Amendment §5.2",
-                    )
-
-                return (
+                return self._abstain_result(
                     (
-                        "You had 10 calendar days to "
-                        "report the change because "
-                        "the change occurred before "
-                        "1 March 2026."
+                        "I need the date when the change "
+                        "occurred to determine which "
+                        "reporting period applies."
                     ),
-                    "§4.3.2 / Amendment §2.1",
-                    "Amendment §5.2",
+                    "Change Reporting",
+                    results,
+                    "Change date was not provided.",
                 )
+
+            if post:
+
+                days = (
+                    POST_AMENDMENT_REPORTING_DAYS
+                )
+
+            else:
+
+                days = (
+                    PRE_AMENDMENT_REPORTING_DAYS
+                )
+
+            supporting_result = (
+                find_supporting_evidence(
+                    results,
+                    required_any=[
+                        f"{days} calendar days",
+                        f"{days} days",
+                        f"{days} calendar",
+                    ],
+                )
+            )
+
+            if supporting_result is None:
+
+                return self._abstain_result(
+                    (
+                        "I don't know. The retrieved policy "
+                        "evidence does not clearly support "
+                        f"the {days}-day reporting period "
+                        "for the requested date."
+                    ),
+                    "Change Reporting",
+                    results,
+                    "Retrieved evidence did not support "
+                    f"the {days}-day reporting period.",
+                )
+
+            if post:
+
+                answer = (
+                    "You have 14 calendar days to report "
+                    "the change because the change occurred "
+                    "on or after 1 March 2026."
+                )
+
+            else:
+
+                answer = (
+                    "You had 10 calendar days to report "
+                    "the change because the change occurred "
+                    "before 1 March 2026."
+                )
+
+            return self._grounded_result(
+                answer,
+                supporting_result,
+                "§4.3.2",
+                "The reporting period was selected based "
+                "on the amendment effective date.",
+                "Change Reporting",
+                results,
+            )
 
         # =================================================
         # 6. CROSS-PERIOD RULE
@@ -1062,17 +1546,46 @@ class GroundedEngine:
             )
         ):
 
-            return (
-                (
-                    "If a claim period spans "
-                    "1 March 2026, use the figures "
-                    "that were in force on each day "
-                    "of the period and apportion "
-                    "the award accordingly under "
-                    "§7.4.3."
-                ),
-                "§7.4.3 / Amendment §5.3",
-                "Amendment §5.3",
+            supporting_result = (
+                find_supporting_evidence(
+                    results,
+                    required_any=[
+                        "§7.4.3",
+                        "apportion",
+                        "1 March 2026",
+                    ],
+                )
+            )
+
+            if supporting_result is None:
+
+                return self._abstain_result(
+                    (
+                        "I don't know. The retrieved policy "
+                        "evidence does not clearly support "
+                        "the cross-period rule."
+                    ),
+                    "Cross-Period Rule",
+                    results,
+                    "Cross-period policy evidence "
+                    "was not sufficient.",
+                )
+
+            answer = (
+                "If a claim period spans 1 March 2026, "
+                "use the figures that were in force on "
+                "each day of the period and apportion "
+                "the award accordingly."
+            )
+
+            return self._grounded_result(
+                answer,
+                supporting_result,
+                "§7.4.3",
+                "The claim period crosses the "
+                "amendment effective date.",
+                "Cross-Period Rule",
+                results,
             )
 
         # =================================================
@@ -1086,8 +1599,7 @@ class GroundedEngine:
         ):
 
             # -------------------------------------------------
-            # Exception:
-            # Change would increase award.
+            # Exception: change would increase award
             # -------------------------------------------------
 
             if (
@@ -1095,30 +1607,95 @@ class GroundedEngine:
                 or "increased" in ql
             ):
 
-                return (
-                    (
-                        "A sanction must not be imposed "
-                        "where the change of circumstances "
-                        "would have increased the award."
-                    ),
-                    "§10.5.3A / Amendment §4.2",
-                    "Amendment §5.1",
+                supporting_result = (
+                    find_supporting_evidence(
+                        results,
+                        required_any=[
+                            "increased the award",
+                            "increase the award",
+                            "must not be imposed",
+                            "sanction",
+                        ],
+                    )
+                )
+
+                if supporting_result is None:
+
+                    return self._abstain_result(
+                        (
+                            "I don't know. The retrieved "
+                            "policy evidence does not clearly "
+                            "support the sanction exception "
+                            "for an increased award."
+                        ),
+                        "Sanction",
+                        results,
+                        "Sanction exception was not "
+                        "supported by retrieved evidence.",
+                    )
+
+                answer = (
+                    "A sanction must not be imposed "
+                    "where the change of circumstances "
+                    "would have increased the award."
+                )
+
+                return self._grounded_result(
+                    answer,
+                    supporting_result,
+                    "§10.5.3A",
+                    "The retrieved evidence supports "
+                    "the increased-award exception.",
+                    "Sanction",
+                    results,
                 )
 
             # -------------------------------------------------
-            # Post-amendment rule
+            # Post amendment sanction
             # -------------------------------------------------
 
             if post:
 
-                return (
-                    (
-                        "The sanction rate is 15 per cent "
-                        "for a determination made on or "
-                        "after 1 March 2026."
-                    ),
-                    "§10.5.2 / Amendment §4.1",
-                    "Amendment §5.1",
+                supporting_result = (
+                    find_supporting_evidence(
+                        results,
+                        required_any=[
+                            "15 per cent",
+                            "15%",
+                            "15 percent",
+                        ],
+                    )
+                )
+
+                if supporting_result is None:
+
+                    return self._abstain_result(
+                        (
+                            "I don't know. The retrieved "
+                            "policy evidence does not clearly "
+                            "support the sanction rate for "
+                            "the requested period."
+                        ),
+                        "Sanction",
+                        results,
+                        "Retrieved evidence did not support "
+                        "the 15 percent sanction rate.",
+                    )
+
+                answer = (
+                    "The sanction rate is 15 per cent "
+                    "for a determination made on or "
+                    "after 1 March 2026."
+                )
+
+                return self._grounded_result(
+                    answer,
+                    supporting_result,
+                    "§10.5.2",
+                    "The sanction rule was selected "
+                    "using the amendment effective date.",
+                    "Sanction",
+                    results,
                 )
 
         return None
@@ -1129,7 +1706,28 @@ class GroundedEngine:
 
     def ask(self, question):
 
-        original_question = question.strip()
+        original_question = (
+            question.strip()
+        )
+
+        if not original_question:
+
+            return {
+                "answer": (
+                    "Please enter a policy question."
+                ),
+                "citation": None,
+                "effective_rule": None,
+                "confidence": "low",
+                "evidence": [],
+                "grounded": False,
+                "intent": "General Policy Question",
+                "next_step": (
+                    "Enter a specific question about "
+                    "the benefits policy."
+                ),
+                "normalized_question": "",
+            }
 
         # -------------------------------------------------
         # Normalize citizen wording
@@ -1160,7 +1758,7 @@ class GroundedEngine:
         )[0]
 
         # -------------------------------------------------
-        # Retrieve policy evidence
+        # Retrieve evidence
         # -------------------------------------------------
 
         results = self.retriever.retrieve(
@@ -1184,49 +1782,11 @@ class GroundedEngine:
 
         if rule:
 
-            answer, citation, effective = rule
+            rule["normalized_question"] = (
+                normalized_question
+            )
 
-            # -------------------------------------------------
-            # Unsupported / insufficient evidence
-            # -------------------------------------------------
-
-            if citation is None:
-
-                return {
-                    "answer": answer,
-                    "citation": None,
-                    "effective_rule": effective,
-                    "confidence": "low",
-                    "evidence": results[:3],
-                    "grounded": False,
-                    "intent": intent,
-                    "next_step": get_next_step(
-                        intent,
-                        False,
-                    ),
-                    "normalized_question":
-                        normalized_question,
-                }
-
-            # -------------------------------------------------
-            # Grounded answer
-            # -------------------------------------------------
-
-            return {
-                "answer": answer,
-                "citation": citation,
-                "effective_rule": effective,
-                "confidence": "high",
-                "evidence": results[:3],
-                "grounded": True,
-                "intent": intent,
-                "next_step": get_next_step(
-                    intent,
-                    True,
-                ),
-                "normalized_question":
-                    normalized_question,
-            }
+            return rule
 
         # =================================================
         # CONSERVATIVE FALLBACK
@@ -1234,7 +1794,7 @@ class GroundedEngine:
 
         if (
             not results
-            or results[0]["score"] < 0.20
+            or result_score(results[0]) < 0.20
         ):
 
             return {
