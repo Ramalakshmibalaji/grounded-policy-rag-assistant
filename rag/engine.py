@@ -1764,7 +1764,7 @@ class GroundedEngine:
         results = self.retriever.retrieve(
             normalized_question,
             query_embedding,
-            top_k=8,
+            top_k=20,
         )
 
         # -------------------------------------------------
