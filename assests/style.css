@@ -245,3 +245,21 @@ div[data-testid="stMetric"] {
     }
 
 }
+.main-title {
+    font-size: 42px;
+    font-weight: 750;
+    color: #1f2937;
+    margin-top: 10px;
+    margin-bottom: 4px;
+}
+
+.subtitle {
+    font-size: 18px;
+    color: #6b7280;
+    margin-bottom: 24px;
+}
+
+.top-nav {
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
