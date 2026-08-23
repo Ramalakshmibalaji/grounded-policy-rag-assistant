@@ -113,10 +113,68 @@ def extract_household_size(text):
 
     for pattern in patterns:
 
-        match = re.search(pattern, text)
+        match = re.search(
+            pattern,
+            text,
+        )
 
         if match:
             return int(match.group(1))
+
+    return None
+
+
+# =========================================================
+# MONTHLY INCOME
+# =========================================================
+
+def extract_monthly_income(text):
+    """
+    Extract monthly household income.
+
+    Supported examples:
+
+        monthly income of $2,000
+        monthly household income $2000
+        income of $2,000 per month
+        monthly income: $2,000
+        monthly income is $2,000
+    """
+
+    patterns = [
+
+        r"monthly\s+(?:household\s+)?income\s+"
+        r"(?:of\s+|is\s+|:?\s*)"
+        r"\$?\s*([\d,]+(?:\.\d{1,2})?)",
+
+        r"income\s+"
+        r"(?:of\s+|is\s+|:?\s*)"
+        r"\$?\s*([\d,]+(?:\.\d{1,2})?)"
+        r"\s*(?:per\s+month|monthly)",
+
+        r"\$?\s*([\d,]+(?:\.\d{1,2})?)"
+        r"\s*(?:per\s+month|monthly)",
+    ]
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            text,
+            re.I,
+        )
+
+        if match:
+
+            try:
+
+                return float(
+                    match.group(1).replace(",", "")
+                )
+
+            except ValueError:
+
+                return None
 
     return None
 
@@ -146,8 +204,11 @@ def normalize_amount(amount_text):
     )
 
     try:
+
         value = float(clean)
+
     except ValueError:
+
         return None
 
     # Do not accidentally treat a year as money.
@@ -155,6 +216,7 @@ def normalize_amount(amount_text):
         return None
 
     if value.is_integer():
+
         return f"${int(value):,}"
 
     return f"${value:,.2f}"
@@ -180,6 +242,7 @@ def extract_amount_near_household(text, household_size):
     # -----------------------------------------------------
 
     table_patterns = [
+
         rf"\|\s*{re.escape(size)}\s*\|\s*"
         rf"(\$?\s*[\d,]+(?:\.\d{{1,2}})?)",
 
@@ -319,6 +382,15 @@ def normalize_citizen_question(question):
     replacements = {
 
         # -------------------------------------------------
+        # Eligibility
+        # -------------------------------------------------
+
+        "can i qualify": "eligibility",
+        "do i qualify": "eligibility",
+        "am i eligible": "eligibility",
+        "can i get the benefit": "eligibility",
+
+        # -------------------------------------------------
         # Benefit
         # -------------------------------------------------
 
@@ -361,13 +433,17 @@ def normalize_citizen_question(question):
         # Earnings disregard
         # -------------------------------------------------
 
-        "money i can earn before it affects": "earnings disregard",
-        "earn before benefit changes": "earnings disregard",
+        "money i can earn before it affects":
+            "earnings disregard",
+
+        "earn before benefit changes":
+            "earnings disregard",
     }
 
     normalized = q
 
     for phrase, replacement in replacements.items():
+
         normalized = normalized.replace(
             phrase,
             replacement,
@@ -389,6 +465,22 @@ def detect_intent(question):
 
     q = question.lower()
 
+    # =====================================================
+    # ELIGIBILITY
+    # =====================================================
+
+    if (
+        "eligibility" in q
+        or "eligible" in q
+        or "qualify" in q
+        or "qualification" in q
+    ):
+        return "Eligibility"
+
+    # =====================================================
+    # MAXIMUM BENEFIT
+    # =====================================================
+
     if (
         "maximum benefit" in q
         or "maximum amount" in q
@@ -397,6 +489,10 @@ def detect_intent(question):
         or "benefit amount" in q
     ):
         return "Maximum Benefit"
+
+    # =====================================================
+    # INCOME THRESHOLD
+    # =====================================================
 
     if (
         "income" in q
@@ -407,8 +503,16 @@ def detect_intent(question):
     ):
         return "Income Threshold"
 
+    # =====================================================
+    # EARNINGS DISREGARD
+    # =====================================================
+
     if "earnings disregard" in q:
         return "Earnings Disregard"
+
+    # =====================================================
+    # CHANGE REPORTING
+    # =====================================================
 
     if (
         "report" in q
@@ -419,12 +523,20 @@ def detect_intent(question):
     ):
         return "Change Reporting"
 
+    # =====================================================
+    # SANCTION
+    # =====================================================
+
     if (
         "sanction" in q
         or "penalty" in q
         or "punishment" in q
     ):
         return "Sanction"
+
+    # =====================================================
+    # CROSS PERIOD
+    # =====================================================
 
     if (
         "claim period" in q
@@ -452,9 +564,14 @@ def get_next_step(intent, grounded):
 
     steps = {
 
+        "Eligibility":
+            "Compare your monthly household income with "
+            "the applicable income threshold for your "
+            "household size.",
+
         "Maximum Benefit":
-            "Check your household size and compare it with "
-            "the policy amount shown above.",
+            "Check your household size and compare it "
+            "with the policy amount shown above.",
 
         "Income Threshold":
             "Check your household size and monthly income "
@@ -473,12 +590,13 @@ def get_next_step(intent, grounded):
             "the exception applies to your situation.",
 
         "Cross-Period Rule":
-            "Check which policy figures were in force during "
-            "each part of the claim period.",
+            "Check which policy figures were in force "
+            "during each part of the claim period.",
 
         "General Policy Question":
-            "Review the supporting policy clause and contact "
-            "the benefits office if your situation is different.",
+            "Review the supporting policy clause and "
+            "contact the benefits office if your situation "
+            "is different.",
     }
 
     return steps.get(
@@ -570,6 +688,8 @@ class GroundedEngine:
 
         household_size = extract_household_size(q)
 
+        monthly_income = extract_monthly_income(q)
+
         # -------------------------------------------------
         # Amendment applicability
         # -------------------------------------------------
@@ -580,7 +700,138 @@ class GroundedEngine:
         )
 
         # =================================================
-        # 1. MAXIMUM BENEFIT
+        # 1. ELIGIBILITY
+        # =================================================
+
+        if (
+            "eligibility" in ql
+            or "eligible" in ql
+            or "qualify" in ql
+            or "qualification" in ql
+        ):
+
+            # -------------------------------------------------
+            # Household size required
+            # -------------------------------------------------
+
+            if household_size is None:
+
+                return (
+                    (
+                        "I need the household size to determine "
+                        "eligibility from the available policy."
+                    ),
+                    None,
+                    "Household size was not provided.",
+                )
+
+            # -------------------------------------------------
+            # Monthly income required
+            # -------------------------------------------------
+
+            if monthly_income is None:
+
+                return (
+                    (
+                        "I need the monthly household income to "
+                        "determine eligibility from the available "
+                        "policy."
+                    ),
+                    None,
+                    "Monthly household income was not provided.",
+                )
+
+            # -------------------------------------------------
+            # Available policy threshold table
+            # -------------------------------------------------
+
+            threshold_table = {
+                1: 1225,
+                2: 1650,
+                3: 2075,
+                4: 2500,
+                5: 2925,
+            }
+
+            threshold = threshold_table.get(
+                household_size
+            )
+
+            # -------------------------------------------------
+            # Household size not available
+            # -------------------------------------------------
+
+            if threshold is None:
+
+                return (
+                    (
+                        f"I don't have enough policy evidence "
+                        f"to determine the eligibility threshold "
+                        f"for a household of {household_size}. "
+                        f"Please contact the county benefits "
+                        f"policy team."
+                    ),
+                    None,
+                    "Household size is outside the available "
+                    "policy threshold table.",
+                )
+
+            # -------------------------------------------------
+            # Date applicability
+            # -------------------------------------------------
+
+            if date is not None and not post:
+
+                return (
+                    (
+                        "I cannot determine eligibility using "
+                        "the post-amendment threshold because "
+                        "the determination date is before "
+                        "1 March 2026."
+                    ),
+                    None,
+                    "The available threshold applies to "
+                    "determinations on or after 1 March 2026.",
+                )
+
+            # -------------------------------------------------
+            # Eligibility comparison
+            # -------------------------------------------------
+
+            if monthly_income <= threshold:
+
+                return (
+                    (
+                        f"Yes. Based on the available policy, "
+                        f"a household of {household_size} with "
+                        f"a monthly income of "
+                        f"${monthly_income:,.0f} is within the "
+                        f"monthly income threshold of "
+                        f"${threshold:,} for the applicable "
+                        f"determination period."
+                    ),
+                    "§6.6.1 / Amendment §3.1",
+                    "Amendment §5.1",
+                )
+
+            else:
+
+                return (
+                    (
+                        f"Based on the available policy, "
+                        f"a household of {household_size} with "
+                        f"a monthly income of "
+                        f"${monthly_income:,.0f} is above the "
+                        f"monthly income threshold of "
+                        f"${threshold:,} for the applicable "
+                        f"determination period."
+                    ),
+                    "§6.6.1 / Amendment §3.1",
+                    "Amendment §5.1",
+                )
+
+        # =================================================
+        # 2. MAXIMUM BENEFIT
         # =================================================
 
         if (
@@ -669,7 +920,7 @@ class GroundedEngine:
                 )
 
         # =================================================
-        # 2. INCOME THRESHOLD
+        # 3. INCOME THRESHOLD
         # =================================================
 
         if (
@@ -727,7 +978,7 @@ class GroundedEngine:
                     )
 
         # =================================================
-        # 3. EARNINGS DISREGARD
+        # 4. EARNINGS DISREGARD
         # =================================================
 
         if "earnings disregard" in ql:
@@ -755,7 +1006,7 @@ class GroundedEngine:
                 )
 
         # =================================================
-        # 4. REPORTING PERIOD
+        # 5. REPORTING PERIOD
         # =================================================
 
         if (
@@ -798,7 +1049,7 @@ class GroundedEngine:
                 )
 
         # =================================================
-        # 5. CROSS-PERIOD RULE
+        # 6. CROSS-PERIOD RULE
         # =================================================
 
         if (
@@ -825,7 +1076,7 @@ class GroundedEngine:
             )
 
         # =================================================
-        # 6. SANCTION
+        # 7. SANCTION
         # =================================================
 
         if (
@@ -948,8 +1199,6 @@ class GroundedEngine:
                     "confidence": "low",
                     "evidence": results[:3],
                     "grounded": False,
-
-                    # New citizen-friendly fields
                     "intent": intent,
                     "next_step": get_next_step(
                         intent,
@@ -970,8 +1219,6 @@ class GroundedEngine:
                 "confidence": "high",
                 "evidence": results[:3],
                 "grounded": True,
-
-                # New citizen-friendly fields
                 "intent": intent,
                 "next_step": get_next_step(
                     intent,
@@ -1003,7 +1250,6 @@ class GroundedEngine:
                 "confidence": "low",
                 "evidence": results[:3],
                 "grounded": False,
-
                 "intent": intent,
                 "next_step": get_next_step(
                     intent,
@@ -1018,19 +1264,28 @@ class GroundedEngine:
         # =================================================
 
         return {
-    "answer": (
-        "I don't know. I found some related policy material, "
-        "but it does not contain enough evidence to answer "
-        "your specific question reliably. "
-        "I don't want to guess or give you incorrect information. "
-        "Please contact the appropriate county benefits policy team."
-    ),
-    "citation": None,
-    "effective_rule": (
-        "The retrieved policy evidence was not sufficient "
-        "to support a specific answer."
-    ),
-    "confidence": "low",
-    "evidence": results[:3],
-    "grounded": False,
-}
+            "answer": (
+                "I don't know. I found some related "
+                "policy material, but it does not contain "
+                "enough evidence to answer your specific "
+                "question reliably. I don't want to guess "
+                "or give you incorrect information. "
+                "Please contact the appropriate county "
+                "benefits policy team."
+            ),
+            "citation": None,
+            "effective_rule": (
+                "The retrieved policy evidence was not "
+                "sufficient to support a specific answer."
+            ),
+            "confidence": "low",
+            "evidence": results[:3],
+            "grounded": False,
+            "intent": intent,
+            "next_step": get_next_step(
+                intent,
+                False,
+            ),
+            "normalized_question":
+                normalized_question,
+        }
